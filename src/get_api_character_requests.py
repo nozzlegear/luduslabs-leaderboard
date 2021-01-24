@@ -5,7 +5,7 @@ import asyncio
 import concurrent.futures
 import json
 
-MAX_WORKERS = 50
+MAX_WORKERS = 10
 
 def clean_string(x):
     return x.strip().strip('"').strip("'").lower()
@@ -16,14 +16,11 @@ if __name__ == "__main__":
 
     fileName = sys.argv[1]
     outputFile = sys.argv[2]
-    token = sys.argv[3]
+    zone = sys.argv[3]
+    token = sys.argv[4]
+
 
     headers = {'Authorization' : 'Bearer %s'%token}
-
-    if fileName.startswith('tmp/eu'):
-        zone = 'eu'
-    else:
-        zone = 'us'
         
     baseUrl = ('https://<zone>.api.blizzard.com/profile/wow/character/' + \
               '<server>/<name>?namespace=profile-<zone>&locale=en_US')\
@@ -47,6 +44,7 @@ if __name__ == "__main__":
         server = request.quote(cleanServer.encode('utf-8'))
         url = baseUrl.replace('<name>', name).replace('<server>', server)
         urls.append(url)
+
 
     # running asynchronous requests to avoid having run time increase linearly
     # with the number of requests

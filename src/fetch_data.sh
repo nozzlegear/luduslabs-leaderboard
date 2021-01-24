@@ -18,19 +18,33 @@ for BRACKET in ${BRACKETS[@]};
 do
     for ZONE in ${ZONES[@]};
     do
-	cd $code_dir
-	# Get ladder data; this is a single API call so we just do it with curl
-	#curl -o $data_dir/${ZONE}_${BRACKET}_ladder_${todays_date}.json --header "$auth" \
-	#     https://${ZONE}.api.blizzard.com/data/wow/pvp-season/${SEASON}/pvp-leaderboard/${BRACKET}?namespace=dynamic-${ZONE}&locale=en_US 
 
+	until $(curl -o $data_dir/${ZONE}_${BRACKET}_ladder_${todays_date}.json \
+		     --header "$auth" \
+		     https://${ZONE}.api.blizzard.com/data/wow/pvp-season/${SEASON}/pvp-leaderboard/${BRACKET}?namespace=dynamic-${ZONE}&locale=en_US); do
+	    printf '.'
+	    sleep 5
+	done
+	# Get ladder data; this is a single API call so we just do it with curl
+    done;
+done;
+
+echo "Done with ladder data."
+
+cd $data_dir
+for BRACKET in ${BRACKETS[@]};
+do
+    for ZONE in ${ZONES[@]};
+    do
 	# Convert to a more workable format
-	python3 process_ladder_data.py \
-		${data_dir}/${ZONE}_${BRACKET}_ladder_${todays_date}.json \
-		$data_dir/${ZONE}_${BRACKET}_ladder_${todays_date}.csv
+	python3 ../src/process_ladder_data.py \
+		${ZONE}_${BRACKET}_ladder_${todays_date}.json \
+		${ZONE}_${BRACKET}_ladder_${todays_date}.csv
 
 	# The ladder data is missing a bunch of character-specific information (e.g. class)
 	# so we need to fetch this with API calls
-	cd $data_dir
+
+	# first just remove local tmp folder
 	rm -r tmp
 	mkdir tmp
 
@@ -48,13 +62,16 @@ do
 	# Glue together into a single file; prep for API calls
 	paste tmp/${ZONE}_${BRACKET}_char_name tmp/${ZONE}_${BRACKET}_char_realm -d ',' \
 	      > tmp/${ZONE}_${BRACKET}_names_realms
+
+
 	
 
 	# Run requests against Blizzard API to get character data for those
 	# on the ladder
 	python3 ../src/get_api_character_requests.py \
 		tmp/${ZONE}_${BRACKET}_names_realms \
-		tmp/${ZONE}_${BRACKET}_char_${todays_date}.json $token
+		tmp/${ZONE}_${BRACKET}_char_${todays_date}.json \
+		${ZONE} $token
 	
 	# Tidy the character data up
 	python3 ../src/process_character_data.py \
@@ -70,3 +87,5 @@ do
 
     done;
 done;
+
+rm -r tmp

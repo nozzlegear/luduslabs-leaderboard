@@ -31,7 +31,7 @@ if __name__ == "__main__":
     inData = sys.argv[1]
     outData = sys.argv[2]
 
-    with open(inData, 'r') as f:
+    with open(inData, 'r', encoding='utf-8') as f:
         dataTemp = json.load(f)
         
     rawData = pd.DataFrame(dataTemp['entries'])

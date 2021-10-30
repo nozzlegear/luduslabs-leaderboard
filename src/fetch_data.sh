@@ -1,16 +1,19 @@
-SEASON=30
-BRACKETS=(2v2 3v3)
+#!/bin/bash
+
+SEASON=31
+BRACKETS=(2v2 3v3 rbg)
 ZONES=(eu us)
 
-./get_access_token.sh
 
 code_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
-data_dir=$(echo $code_dir/../data)
-token=$(cat ../secrets/access_token | cut -f 1 --delimiter ","|cut -f 2 -d ":"|sed --expression='s/"//g')
+${code_dir}/get_access_token.sh
 
+data_dir=/data
+token=$(cat ../secrets/access_token | cut -f 1 --delimiter ","|cut -f 2 -d ":"|sed --expression='s/"//g')
 
 auth=$(echo "Authorization: Bearer" $token)
 
+mkdir $data_dir/.tmp
 
 todays_date=$(date +"%Y%m%d")
 
@@ -19,7 +22,7 @@ do
     for ZONE in ${ZONES[@]};
     do
 
-	until $(curl -o $data_dir/${ZONE}_${BRACKET}_ladder_${todays_date}.json \
+	until $(curl -o $data_dir/.tmp/${todays_date}_${ZONE}_${BRACKET}_ladder.json \
 		     --header "$auth" \
 		     https://${ZONE}.api.blizzard.com/data/wow/pvp-season/${SEASON}/pvp-leaderboard/${BRACKET}?namespace=dynamic-${ZONE}&locale=en_US); do
 	    printf '.'
@@ -31,61 +34,73 @@ done;
 
 echo "Done with ladder data."
 
+
+
 cd $data_dir
+
 for BRACKET in ${BRACKETS[@]};
 do
     for ZONE in ${ZONES[@]};
     do
+	echo "Running $BRACKET $ZONE"
 	# Convert to a more workable format
-	python3 ../src/process_ladder_data.py \
-		${ZONE}_${BRACKET}_ladder_${todays_date}.json \
-		${ZONE}_${BRACKET}_ladder_${todays_date}.csv
+	python3 $code_dir/process_ladder_data.py \
+		.tmp/${todays_date}_${ZONE}_${BRACKET}_ladder.json \
+		.tmp/${todays_date}_${ZONE}_${BRACKET}_ladder.csv
 
 	# The ladder data is missing a bunch of character-specific information (e.g. class)
 	# so we need to fetch this with API calls
 
-	# first just remove local tmp folder
-	rm -r tmp
-	mkdir tmp
 
 	# Get a list of all the names and realms for each person
-	cat ${ZONE}_${BRACKET}_ladder_${todays_date}.json |jq .entries[] \
-	    | jq '.character|{name, realm}' > tmp/${ZONE}_${BRACKET}_ladder_chars.json
+	cat .tmp/${todays_date}_${ZONE}_${BRACKET}_ladder.json |jq .entries[] \
+	    | jq '.character|{name, realm}' > .tmp/${ZONE}_${BRACKET}_ladder_chars.json
 
 	# Get name and server for each person on the ladder
-	cat tmp/${ZONE}_${BRACKET}_ladder_chars.json \
-	    | jq .name > tmp/${ZONE}_${BRACKET}_char_name
+	cat .tmp/${ZONE}_${BRACKET}_ladder_chars.json \
+	    | jq .name > .tmp/${ZONE}_${BRACKET}_char_name
 	
-	cat tmp/${ZONE}_${BRACKET}_ladder_chars.json \
-	    | jq .realm | jq .slug > tmp/${ZONE}_${BRACKET}_char_realm
+	cat .tmp/${ZONE}_${BRACKET}_ladder_chars.json \
+	    | jq .realm | jq .slug > .tmp/${ZONE}_${BRACKET}_char_realm
 
 	# Glue together into a single file; prep for API calls
-	paste tmp/${ZONE}_${BRACKET}_char_name tmp/${ZONE}_${BRACKET}_char_realm -d ',' \
-	      > tmp/${ZONE}_${BRACKET}_names_realms
+	paste .tmp/${ZONE}_${BRACKET}_char_name .tmp/${ZONE}_${BRACKET}_char_realm -d ',' \
+	      > .tmp/${ZONE}_${BRACKET}_names_realms
 
-
-	
 
 	# Run requests against Blizzard API to get character data for those
 	# on the ladder
-	python3 ../src/get_api_character_requests.py \
-		tmp/${ZONE}_${BRACKET}_names_realms \
-		tmp/${ZONE}_${BRACKET}_char_${todays_date}.json \
+	python3 $code_dir/get_api_character_requests.py \
+		.tmp/${ZONE}_${BRACKET}_names_realms \
+		.tmp/${todays_date}_${ZONE}_${BRACKET}_char.json \
 		${ZONE} $token
 	
-	# Tidy the character data up
-	python3 ../src/process_character_data.py \
-		tmp/${ZONE}_${BRACKET}_char_${todays_date}.json \
-		${ZONE}_${BRACKET}_char_${todays_date}.csv
+	# Process character data; convert json to CSV
+	python3 $code_dir/process_character_data.py \
+		.tmp/${todays_date}_${ZONE}_${BRACKET}_char.json \
+		.tmp/${todays_date}_${ZONE}_${BRACKET}_char.csv
 
+	python3 $code_dir/get_api_pvp_requests.py \
+		.tmp/${ZONE}_${BRACKET}_names_realms \
+		.tmp/${todays_date}_${ZONE}_${BRACKET}_pvp.json \
+		${ZONE} $token
+
+	python3 $code_dir/process_pvp_character_data.py \
+		.tmp/${todays_date}_${ZONE}_${BRACKET}_pvp.json \
+		.tmp/${todays_date}_${ZONE}_${BRACKET}_pvp.csv
+	
+
+	python3 $code_dir/join_character_and_pvp_data.py \
+		.tmp/${todays_date}_${ZONE}_${BRACKET}_char.csv \
+		.tmp/${todays_date}_${ZONE}_${BRACKET}_pvp.csv \
+		.tmp/${todays_date}_${ZONE}_${BRACKET}_char_pvp.csv
+	
 	# Join ladder data and character data together
-	python3 ../src/join_datasets_on_key.py \
-		${ZONE}_${BRACKET}_ladder_${todays_date}.csv \
-		${ZONE}_${BRACKET}_char_${todays_date}.csv \
+	python3 $code_dir/join_datasets_on_key.py \
+		.tmp/${todays_date}_${ZONE}_${BRACKET}_ladder.csv \
+		.tmp/${todays_date}_${ZONE}_${BRACKET}_char_pvp.csv \
 		id \
-		${ZONE}_${BRACKET}_combined_${todays_date}.csv
+		${todays_date}_${ZONE}_${BRACKET}_leaderboard.csv
 
     done;
 done;
-
-rm -r tmp

@@ -40,7 +40,7 @@ def process_character_data(raw):
 
     processed.loc[:, nameCols] = get_subfield(raw, 'name', nameCols)
 
-    return processed
+    return processed.dropna(subset=['id'], axis=0)
 
 
 if __name__ == "__main__":
@@ -54,5 +54,6 @@ if __name__ == "__main__":
                        .apply(lambda x: pd.Series(json.loads(x)))
     
     processedData = process_character_data(rawData)
+
 
     processedData.to_csv(outFile)
